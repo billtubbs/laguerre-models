@@ -2,6 +2,8 @@ import numpy as np
 import casadi as ca
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
+from itertools import pairwise
+
 
 class LaguerreRecursiveIdentifier:
     """
@@ -202,17 +204,36 @@ class LaguerreRecursiveIdentifier:
         
         return y_pred, error
 
-def generate_test_data(t_span, true_p=0.6, true_c=None, noise_level=0.05):
+
+def make_input_step_functon(t_start, t_stop, u0=0.0, n_steps=9):
+    """Generate function that returns values from a prbs-like input signal"""
+    t_steps = np.linspace(t_start, t_stop, n_steps, endpoint=False)
+    step_data = np.array([1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1], dtype='float')
+    assert step_data.shape[0] >= t_steps.shape[0]
+
+    def step_function(t):
+        if t < t_start:
+            return u0
+        i = np.searchsorted(t_steps, t)
+        if i == n_steps:
+            return step_data[-1]
+        return step_data[i]
+    
+    return step_function
+
+
+def generate_test_data(t_span, true_p=0.6, true_c=(0.8, 0.5, 0.2), noise_level=0.05):
     """Generate test data from a true Laguerre system"""
-    if true_c is None:
-        true_c = np.array([0.8, 0.5, 0.2])
-    
-    n_order = len(true_c)
-    dt = t_span[1] - t_span[0]
-    
+    true_c = np.array(true_c)
+    n_order = true_c.shape[0]
+
+    step_function = make_input_step_functon(t_span[-1] / 15, t_span[-1], n_steps=14)
+
     def laguerre_system(states, t):
         """True system dynamics"""
-        u = 1.0 if t >= 1.0 else 0.0  # Step input at t=1
+        #u = 1.0 if t >= 1.0 else 0.0  # Step input at t=1
+        u = step_function(t)
+
         sqrt_2p = np.sqrt(2 * true_p)
         
         dl_dt = np.zeros(n_order)
@@ -229,24 +250,25 @@ def generate_test_data(t_span, true_p=0.6, true_c=None, noise_level=0.05):
     
     # Generate outputs
     y_true = states_history @ true_c
-    
+
     # Generate inputs
-    u_data = np.array([1.0 if t >= 1.0 else 0.0 for t in t_span])
-    
+    u_data = np.array([step_function(t) for t in t_span])
+
     # Add noise
     y_measured = y_true + np.random.normal(0, noise_level, len(y_true))
     
     return u_data, y_measured, y_true
 
+
 def main():
     """Main function to demonstrate recursive identification"""
     # Time vector
-    t_span = np.linspace(0, 10, 1000)
+    t_span = np.linspace(0, 100, 1001)
     dt = t_span[1] - t_span[0]
     
     # True system parameters
-    true_p = 0.6
-    true_c = np.array([0.8, 0.5, 0.2])
+    true_p = 0.5
+    true_c = np.array([0.8, -0.5, -0.1])
     
     # Generate test data
     print("Generating test data...")
